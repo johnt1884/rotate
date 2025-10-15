@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VirtualDub-like Rotation Marker Tool — Phase 8</title>
+<style>
+:root{
+  --bg:#121212;--panel:#1f1f1f;--muted:#888;
+  --cyan:#00e5ff;--yellow:#ffca28;--pink:#ff4081;
+  --accent:#00acc1;--green:#43a047;--blue:#2196f3;
+}
+html,body{
+  height:100%;margin:0;background:var(--bg);color:#eee;
+  font-family:Inter,Arial,Helvetica,sans-serif
+}
+.app{display:flex;height:100vh;gap:12px}
+#sidebar{
+  width:320px;background:var(--panel);padding:14px;box-sizing:border-box;
+  border-right:2px solid #222;overflow:auto
+}
+#sidebar h2{margin:4px 0 12px;font-size:18px;text-align:center}
+#loadFolder{
+  width:100%;padding:10px;border-radius:6px;background:#2176d2;
+  border:2px solid #1b5f9b;color:white;cursor:pointer
+}
+#videoList{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.thumb{
+  display:flex;gap:8px;align-items:center;padding:8px;background:#2a2a2a;
+  border-radius:6px;cursor:pointer
+}
+.thumb .icon{
+  width:90px;height:56px;background:#000;border-radius:4px;
+  display:flex;align-items:center;justify-content:center;font-size:20px
+}
+.thumb p{
+  margin:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.thumb.committed p{
+  text-decoration:underline;text-decoration-color:var(--blue);
+  text-decoration-thickness:2px
+}
+#main{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:12px;
+  padding:18px;box-sizing:border-box
+}
+#fileInfo{font-size:15px;color:#ddd}
+#playerRow{
+  display:flex;align-items:center;gap:12px;width:100%;justify-content:center
+}
+.navBtn{
+  background:#222;border:2px solid #333;color:#fff;padding:10px 12px;
+  border-radius:6px;cursor:pointer;font-size:18px
+}
+#playerWrap{
+  display:flex;flex-direction:column;align-items:center;
+  width:100%;max-width:1100px
+}
+#videoContainer{
+  width:100%;display:flex;align-items:center;justify-content:center;
+  min-height:260px
+}
+#mainVideo{
+  max-width:90%;max-height:68vh;background:black;border-radius:6px;
+  object-fit:contain;transform:rotate(0deg)
+}
+#timelineWrap{width:86%;position:relative;user-select:none}
+#timeline{
+  height:18px;background:#333;border-radius:9px;position:relative;
+  cursor:pointer;margin-bottom:36px
+}
+.progress{
+  position:absolute;left:0;top:0;height:100%;background:var(--accent);
+  border-radius:9px;width:0%
+}
+.marker{
+  position:absolute;top:0;width:6px;height:18px;transform:translateX(-50%);
+  border-radius:3px;box-shadow:0 0 4px rgba(0,0,0,.6)
+}
+.marker[data-rot="270"]{background:var(--cyan)}
+.marker[data-rot="180"]{background:var(--yellow)}
+.marker[data-rot="90"]{background:var(--pink)}
+.delete-x{
+  position:absolute;top:20px;transform:translateX(-50%);
+  font-size:12px;cursor:pointer;color:#ccc
+}
+.delete-x:hover{color:#f44336}
+#tooltip{
+  position:absolute;top:-30px;transform:translateX(-50%);
+  background:#222;padding:5px 8px;border-radius:6px;font-size:12px;
+  color:#ddd;pointer-events:none;white-space:nowrap;
+  box-shadow:0 4px 12px rgba(0,0,0,.6);display:none
+}
+#controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+button{
+  background:#222;color:#fff;border:2px solid transparent;
+  padding:8px 12px;border-radius:6px;cursor:pointer;font-size:14px
+}
+#rotLeft{border-color:var(--cyan)}#rot180{border-color:var(--yellow)}
+#rotRight{border-color:var(--pink)}
+#playPause{background:var(--accent)}#muteBtn{background:#444}
+#generateBtn{background:#4caf50;border-color:#388e3c}
+#commitWrap{
+  display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:8px
+}
+.commitRow{display:flex;gap:8px;align-items:center}
+.greenNav{
+  background:var(--green);border:2px solid #2e7d32;color:#fff;
+  padding:8px 10px;border-radius:6px;cursor:pointer
+}
+#processedCount{color:#ddd}
+#processedActions{display:flex;gap:8px;margin-top:6px}
+.small{font-size:12px;color:var(--muted)}
+@media(max-width:900px){#sidebar{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside id="sidebar">
+    <h2>Video List</h2>
+    <button id="loadFolder">📁 Load Folder</button>
+    <div id="videoList"></div>
+    <p class="small" style="margin-top:12px">
+      Tip: open via <code>http://localhost</code> for directory access.
+    </p>
+  </aside>
+
+  <main id="main">
+    <div id="fileInfo">No file selected</div>
+
+    <div id="playerRow">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <button class="navBtn" id="prevBtn">◀</button>
+        <div class="commitRow" style="margin-top:8px">
+          <button class="greenNav" id="commitPrev">◀ Commit</button>
+        </div>
+      </div>
+
+      <div id="playerWrap">
+        <div id="videoContainer">
+          <video id="mainVideo" controls muted preload="metadata"></video>
+        </div>
+        <div id="timelineWrap">
+          <div id="tooltip"></div>
+          <div id="timeline"><div class="progress" id="progress"></div></div>
+        </div>
+        <div id="controls">
+          <button id="playPause">▶️ Play</button>
+          <button id="muteBtn">🔇 Muted</button>
+          <button id="rotLeft" data-delta="270">90° Left</button>
+          <button id="rot180" data-delta="180">180°</button>
+          <button id="rotRight" data-delta="90">90° Right</button>
+          <button id="generateBtn">Generate .bat</button>
+          <span id="timeDisplay" class="small" style="margin-left:8px">
+            00:00.000 / 00:00.000
+          </span>
+        </div>
+        <div id="commitWrap">
+          <div class="commitRow">
+            <button class="greenNav" id="commitNext">Commit ▶</button>
+            <span id="processedCount">Added 0 video(s)</span>
+          </div>
+          <div id="processedActions" class="small">
+            <button id="clearProcessed">Clear All</button>
+            <button id="removeCurrentProcessed">Remove Current</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <button class="navBtn" id="nextBtn">▶</button>
+        <div class="commitRow" style="margin-top:8px">
+          <button class="greenNav" id="commitNextAlt">Commit ▶</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+/* === Core JavaScript === */
+
+const loadFolderBtn=document.getElementById('loadFolder');
+const videoList=document.getElementById('videoList');
+const mainVideo=document.getElementById('mainVideo');
+const timeline=document.getElementById('timeline');
+const progress=document.getElementById('progress');
+const tooltip=document.getElementById('tooltip');
+const rotLeftBtn=document.getElementById('rotLeft');
+const rot180Btn=document.getElementById('rot180');
+const rotRightBtn=document.getElementById('rotRight');
+const playPauseBtn=document.getElementById('playPause');
+const muteBtn=document.getElementById('muteBtn');
+const prevBtn=document.getElementById('prevBtn');
+const nextBtn=document.getElementById('nextBtn');
+const commitPrev=document.getElementById('commitPrev');
+const commitNext=document.getElementById('commitNext');
+const commitNextAlt=document.getElementById('commitNextAlt');
+const processedCountLabel=document.getElementById('processedCount');
+const clearProcessedBtn=document.getElementById('clearProcessed');
+const removeCurrentProcessedBtn=document.getElementById('removeCurrentProcessed');
+const fileInfo=document.getElementById('fileInfo');
+const generateBtn=document.getElementById('generateBtn');
+const timeDisplay=document.getElementById('timeDisplay');
+
+let videos=[];let currentIndex=-1;let currentAppliedRotation=0;
+let scrubbingMouseDown=false,isScrubbing=false;
+const fileStates=new Map();const processedSet=new Set();
+
+function fmtTime(s){
+ if(!isFinite(s))s=0;
+ const ms=Math.floor((s-Math.floor(s))*1000);
+ const m=Math.floor(s/60);const sec=Math.floor(s%60);
+ return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+}
+function currentVideo(){return videos[currentIndex]||null}
+
+/* === Folder loading === */
+loadFolderBtn.addEventListener('click',async()=>{
+ try{
+  const dir=await window.showDirectoryPicker();
+  videos=[];
+  for await(const e of dir.values()){
+   if(e.kind==='file'&&/\.(mp4|webm|mov|mkv)$/i.test(e.name)){
+     const f=await e.getFile();
+     const u=URL.createObjectURL(f);
+     videos.push({name:e.name,url:u,file:f,markers:[],seen:false});
+   }
+  }
+  if(!videos.length)return alert('No supported videos.');
+  videos.sort((a,b)=>a.name.localeCompare(b.name));
+  renderVideoList();
+ }catch(err){if(err.name!=='AbortError')alert('Folder load error');}
+});
+
+/* === Sidebar === */
+function renderVideoList(){
+ videoList.innerHTML='';
+ videos.forEach((v,i)=>{
+  const d=document.createElement('div');
+  d.className='thumb'+(processedSet.has(v.name)?' committed':'');
+  d.innerHTML=`<div class="icon">🎞️</div><div style="flex:1"><p>${v.name}</p></div>`;
+  d.onclick=()=>selectVideo(i);
+  videoList.appendChild(d);
+ });
+ processedCountLabel.textContent=`Added ${processedSet.size} video(s)`;
+}
+
+/* === Select video === */
+function selectVideo(i){
+ if(currentIndex>=0)saveCurrentState();
+ currentIndex=i;const v=videos[i];
+ if(!fileStates.has(v.name))
+  fileStates.set(v.name,{time:0,markers:[],rotation:0});
+ const s=fileStates.get(v.name);
+ mainVideo.src=v.url;
+ mainVideo.onloadedmetadata=()=>{
+   s.width=mainVideo.videoWidth;s.height=mainVideo.videoHeight;
+   s.duration=mainVideo.duration;
+   mainVideo.currentTime=s.time||0;
+   currentAppliedRotation=s.rotation||0;
+   applyRotationToViewer(currentAppliedRotation);
+   v.markers=s.markers.slice();
+   renderMarkers();updateFileInfo();
+ };
+ updateFileInfo();renderVideoList();
+}
+
+/* === Save/restore === */
+function saveCurrentState(){
+ const v=currentVideo();if(!v)return;
+ fileStates.set(v.name,{
+  time:mainVideo.currentTime||0,
+  markers:v.markers.slice(),
+  rotation:currentAppliedRotation,
+  width:mainVideo.videoWidth||0,
+  height:mainVideo.videoHeight||0,
+  duration:mainVideo.duration||0
+ });
+}
+function updateFileInfo(){
+ const v=currentVideo();
+ fileInfo.textContent=v?`${v.name} — ${currentIndex+1}/${videos.length}`:'No file';
+}
+
+/* === Navigation === */
+function goToIndex(i){if(!videos.length)return;
+ const n=(i%videos.length+videos.length)%videos.length;
+ selectVideo(n);}
+prevBtn.onclick=()=>goToIndex(currentIndex-1);
+nextBtn.onclick=()=>goToIndex(currentIndex+1);
+window.onkeydown=e=>{
+ if(e.key==='ArrowLeft')goToIndex(currentIndex-1);
+ if(e.key==='ArrowRight')goToIndex(currentIndex+1);
+};
+
+/* === Rotation / Markers === */
+function applyRotationToViewer(d){currentAppliedRotation=(d+360)%360;
+ mainVideo.style.transform=`rotate(${currentAppliedRotation}deg)`;}
+function addMarker(rot){
+ const v=currentVideo();if(!v)return;
+ v.markers.push({time:mainVideo.currentTime,rotation:rot});
+ v.markers.sort((a,b)=>a.time-b.time);renderMarkers();
+}
+[rotLeftBtn,rot180Btn,rotRightBtn].forEach(b=>b.onclick=()=>{
+ const d=parseInt(b.dataset.delta);
+ const nr=(currentAppliedRotation+d)%360;
+ applyRotationToViewer(nr);addMarker(nr);
+});
+
+/* === Markers render === */
+function renderMarkers(){
+ timeline.querySelectorAll('.marker,.delete-x').forEach(x=>x.remove());
+ const v=currentVideo();if(!v||!mainVideo.duration)return;
+ const w=timeline.clientWidth;
+ v.markers.forEach((m,idx)=>{
+  const x=(m.time/mainVideo.duration)*w;
+  const mark=document.createElement('div');
+  mark.className='marker';mark.dataset.rot=m.rotation;mark.style.left=x+'px';
+  mark.title=`${fmtTime(m.time)} – ${m.rotation}°`;
+  mark.onclick=()=>{mainVideo.currentTime=m.time;applyRotationToViewer(m.rotation)};
+  timeline.appendChild(mark);
+  const del=document.createElement('div');
+  del.className='delete-x';del.style.left=x+'px';del.textContent='❌';
+  del.onclick=e=>{
+    e.stopPropagation();v.markers.splice(idx,1);renderMarkers();
+  };
+  timeline.appendChild(del);
+ });
+}
+
+/* === Playback === */
+mainVideo.ontimeupdate=()=>{
+ if(!mainVideo.duration)return;
+ if(!isScrubbing)
+  progress.style.width=(mainVideo.currentTime/mainVideo.duration*100)+'%';
+ timeDisplay.textContent=`${fmtTime(mainVideo.currentTime)} / ${fmtTime(mainVideo.duration)}`;
+ let rot=0;const v=currentVideo();
+ if(v)for(const m of v.markers){if(mainVideo.currentTime>=m.time)rot=m.rotation;else break;}
+ applyRotationToViewer(rot);
+};
+playPauseBtn.onclick=()=>{
+ if(mainVideo.paused){mainVideo.play();playPauseBtn.textContent='⏸ Pause';}
+ else{mainVideo.pause();playPauseBtn.textContent='▶️ Play';}
+};
+muteBtn.onclick=()=>{
+ mainVideo.muted=!mainVideo.muted;
+ muteBtn.textContent=mainVideo.muted?'🔇 Muted':'🔊 Unmuted';
+};
+mainVideo.muted=true;
+
+/* === Timeline seeking === */
+timeline.onmousedown=e=>{
+ scrubbingMouseDown=true;isScrubbing=true;
+ const r=timeline.getBoundingClientRect();
+ const t=((e.clientX-r.left)/r.width)*mainVideo.duration;
+ mainVideo.currentTime=t;
+};
+window.onmouseup=()=>{if(scrubbingMouseDown){scrubbingMouseDown=false;isScrubbing=false;}};
+timeline.onclick=e=>{
+ const r=timeline.getBoundingClientRect();
+ mainVideo.currentTime=((e.clientX-r.left)/r.width)*mainVideo.duration;
+};
+
+/* === Commit handling === */
+function commit(dir){
+ const v=currentVideo();if(!v)return;
+ if(v.markers.length)processedSet.add(v.name);
+ renderVideoList();
+ goToIndex(currentIndex+dir);
+}
+commitPrev.onclick=()=>commit(-1);
+commitNext.onclick=()=>commit(1);
+commitNextAlt.onclick=()=>commit(1);
+clearProcessedBtn.onclick=()=>{processedSet.clear();renderVideoList();}
+removeCurrentProcessedBtn.onclick=()=>{
+ const v=currentVideo();if(v){processedSet.delete(v.name);renderVideoList();}
+};
+
+/* === FFmpeg helpers === */
+function buildFilterStringForSegment(ow,oh,rot,tw,th){
+ const p=[];
+ if(rot===90)p.push('transpose=1');
+ else if(rot===270)p.push('transpose=2');
+ else if(rot===180)p.push('transpose=1,transpose=1');
+ p.push(`pad=${tw}:${th}:(${tw}-iw)/2:(${th}-ih)/2:color=black`);
+ return p.join(',');
+}
+async function ensureMetadataFor(name,v){
+ const s=fileStates.get(name)||{};
+ if(s.width&&s.height&&s.duration)return s;
+ return new Promise(res=>{
+  const tmp=document.createElement('video');tmp.preload='metadata';tmp.src=v.url;
+  tmp.onloadedmetadata=()=>{s.width=tmp.videoWidth;s.height=tmp.videoHeight;s.duration=tmp.duration;
+    fileStates.set(name,s);tmp.src='';res(s);}
+  tmp.onerror=()=>{tmp.src='';res(null);}
+ });
+}
+/* === .BAT generation (Phase 8, fixed paths & cleanup) === */
+async function generateBat(){
+  if(!processedSet.size){
+    alert('No committed videos to export.');
+    return;
+  }
+  generateBtn.disabled=true;
+  generateBtn.textContent='Building .bat...';
+
+  const bat=[];
+  bat.push('@echo off');
+  bat.push('REM Generated by Rotation Marker Tool — Phase 8');
+  bat.push('IF NOT EXIST output mkdir output');
+  bat.push('');
+
+  for(const name of processedSet){
+    const v=videos.find(x=>x.name===name);
+    if(!v){bat.push(`echo Skipping ${name} (not found)`);continue;}
+    const meta=await ensureMetadataFor(name,v);
+    if(!meta){bat.push(`echo Skipping ${name} (metadata missing)`);continue;}
+
+    const duration=meta.duration||0;
+    const ow=meta.width||1080;
+    const oh=meta.height||1920;
+    const tw=Math.max(ow,oh),th=Math.min(ow,oh);
+    const base=name.replace(/\.[^/.]+$/,'');
+    const markers=(v.markers||[]).slice().sort((a,b)=>a.time-b.time);
+
+    const starts=[0],rots=[];
+    if(markers.length===0){rots.push(0);}
+    else{
+      for(let i=0;i<markers.length;i++)starts.push(markers[i].time);
+      for(let i=0;i<starts.length;i++){
+        let r=0;for(const m of markers){if(starts[i]>=m.time)r=m.rotation;else break;}
+        rots.push(r);
+      }
+    }
+
+    bat.push(`echo Processing "${name}" ...`);
+    const segs=[];
+    for(let i=0;i<rots.length;i++){
+      const s=starts[i];
+      const e=(i+1<starts.length)?starts[i+1]:duration;
+      if(e<=s)continue;
+      const idx=String(i).padStart(3,'0');
+      const out=`output\\${base}_seg${idx}.mp4`;
+      segs.push(out);
+      const vf=buildFilterStringForSegment(ow,oh,rots[i],tw,th);
+      bat.push(`echo Segment ${idx}: ${fmtTime(s)}–${fmtTime(e)}  rot=${rots[i]}°`);
+bat.push(`ffmpeg -y -i "${name}" -ss ${s.toFixed(3)} -to ${e.toFixed(3)} -vf "${vf}" -c:v libx264 -crf 18 -preset slow -c:a copy "${out}"`);
+ }
+
+    const list=`${base}_list.txt`;
+    bat.push(`del "${list}" 2>nul`);
+    bat.push(`echo Creating list for concat`);
+    for(const s of segs)
+      bat.push(`echo file '${s}' >> "${list}"`);
+
+    const final=`output\\${base}_final.mp4`;
+    bat.push(`echo Concatenating segments -> ${final}`);
+    bat.push(`ffmpeg -y -f concat -safe 0 -i "${list}" -c copy "${final}"`);
+
+    bat.push(`echo Cleaning up segments for "${name}"`);
+    for(const s of segs)
+      bat.push(`del "${s}" 2>nul`);
+    bat.push(`del "${list}" 2>nul`);
+    bat.push('');
+  }
+
+  bat.push('echo All done.');
+  bat.push('pause');
+
+  const blob=new Blob([bat.join('\r\n')],{type:'text/plain'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='process_videos.bat';
+  document.body.appendChild(a);
+  a.click();a.remove();
+  URL.revokeObjectURL(url);
+
+  generateBtn.disabled=false;
+  generateBtn.textContent='Generate .bat';
+  alert('Downloaded process_videos.bat — run it beside your videos.');
+}
+// Attach button event
+generateBtn.addEventListener('click', generateBat);
+/* === End of Script === */
+</script>
+</body>
+</html>
